@@ -1,0 +1,12 @@
+* text=auto
+
+*.cs text
+*.csproj text
+*.sln text
+*.txt text
+
+*.sh text eol=lf
+
+*.dll binary
+*.exe binary
+*.pdb binary
