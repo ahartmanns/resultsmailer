@@ -128,7 +128,6 @@ namespace ResultsMailer
 			Console.Write("Preparing messages...");
 			string templateFilePath = Path.IsPathFullyQualified(config.Template.File) ? config.Template.File : Path.Combine(relativeDir, config.Template.File);
 			string template = File.ReadAllText(templateFilePath, Encoding.UTF8);
-			int lineEnd = template.IndexOf('\n');
 			string[] messages = new string[csvCells.Length];
 			string[][] tos = new string[csvCells.Length][];
 			string[] logs = new string[csvCells.Length];
@@ -182,7 +181,7 @@ namespace ResultsMailer
 					if(tos[i].Length == 0) continue;
 					string message = messages[i];
 					string toImpl = tos[i].Aggregate((s1, s2) => s1 + ", " + s2);
-					Console.WriteLine("* " + toImpl.Substring(0, toImpl.Length - 2));
+					Console.WriteLine("* " + toImpl[0..^2]);
 
 					// Create email
 					var mail = new MimeMessage();
