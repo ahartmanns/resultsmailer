@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using MailKit.Net.Smtp;
@@ -50,52 +51,62 @@ namespace ResultsMailer
 			int rowCount = 0;
 			for(int i = 0; i < csvLines.Length; ++i)
 			{
-				string line = csvLines[i];
 				var cells = new List<string>();
 				bool inString = false;
 				var cell = new StringBuilder();
-				for(int j = 0; j < line.Length; ++j)
+				do
 				{
-					char c = line[j];
-					if(c == config.Data.Separator)
+					string line = csvLines[i];
+					for(int j = 0; j < line.Length; ++j)
 					{
-						if(inString)
+						char c = line[j];
+						if(c == config.Data.Separator)
 						{
-							cell.Append(c);
-						}
-						else
-						{
-							cells.Add(cell.ToString());
-							cell.Clear();
-						}
-					}
-					else if(c == '"')
-					{
-						if(inString)
-						{
-							if(j < line.Length - 1 && line[j + 1] == '"')
+							if(inString)
 							{
-								// Escaped quote
-								cell.Append('"');
-								++j;
+								cell.Append(c);
 							}
 							else
 							{
-								// End of string
-								inString = false;
+								cells.Add(cell.ToString());
+								cell.Clear();
+							}
+						}
+						else if(c == '"')
+						{
+							if(inString)
+							{
+								if(j < line.Length - 1 && line[j + 1] == '"')
+								{
+									// Escaped quote
+									cell.Append('"');
+									++j;
+								}
+								else
+								{
+									// End of string
+									inString = false;
+								}
+							}
+							else
+							{
+								// Beginning of string
+								inString = true;
 							}
 						}
 						else
 						{
-							// Beginning of string
-							inString = true;
+							cell.Append(c);
 						}
 					}
-					else
+					if(inString)
 					{
-						cell.Append(c);
+						// Still in a string at the end of line: insert newline, continue on the next line (below)
+						cell.Append(Environment.NewLine);
+						++i;
 					}
 				}
+				while(inString);
 				/*if(cell.Length != 0)*/ cells.Add(cell.ToString());
 				if(cells.Count != config.Data.Columns)
 				{
@@ -103,7 +114,8 @@ namespace ResultsMailer
 					Console.WriteLine("Error: Expected " + config.Data.Columns.ToString(CI.InvariantCulture) + " columns in data file line " + (i + 1 + config.Data.HeaderRows).ToString(CI.InvariantCulture) + ", found " + cells.Count.ToString(CI.InvariantCulture) + ".");
 					return;
 				}
-				if(config.Data.ExcludeIfEmptyColumn <= 0 || cells[config.Data.ExcludeIfEmptyColumn - 1].Length != 0)
+				if((config.Data.ExcludeIfEmptyColumn <= 0 || cells[config.Data.ExcludeIfEmptyColumn - 1].Length != 0)
+					&& (config.Data.ExcludeIfNonEmptyColumn <= 0 || cells[config.Data.ExcludeIfNonEmptyColumn - 1].Length == 0))
 				{
 					csvCells[rowCount] = cells.ToArray();
 					++rowCount;
@@ -118,22 +130,28 @@ namespace ResultsMailer
 			string template = File.ReadAllText(templateFilePath, Encoding.UTF8);
 			int lineEnd = template.IndexOf('\n');
 			string[] messages = new string[csvCells.Length];
-			string[] tos = new string[csvCells.Length];
+			string[][] tos = new string[csvCells.Length][];
 			string[] logs = new string[csvCells.Length];
 			for(int i = 0; i < csvCells.Length; ++i)
 			{
 				string[] cell = csvCells[i];
-				tos[i] = cell[config.Data.ToColumn - 1];
+				tos[i] = cell.Where((to, i) => config.Data.ToColumns.Contains(i + 1) && !string.IsNullOrWhiteSpace(to)).ToArray();
 				string message = template;
 				for(int j = cell.Length - 1; j >= 0; --j) // we go backwards so that we replace e.g. %10 with column 10, not with column 1 and leaving a 0
 				{
 					message = message.Replace("%" + (j + 1).ToString(CI.InvariantCulture), cell[j]);
 				}
-				if(message.Contains('%'))
+				int percentSignFrom = 0;
+				int percentSignIndex;
+				while((percentSignIndex = message.IndexOf('%', percentSignFrom)) != -1)
 				{
-					Console.WriteLine();
-					Console.WriteLine("Error: Missing column or \"%\" symbol in data file line " + (i + 1).ToString(CI.InvariantCulture) + ".");
-					return;
+					if(message.Length > percentSignIndex + 1 && message[percentSignIndex + 1] >= '0' && message[percentSignIndex + 1] <= '9')
+					{
+						Console.WriteLine();
+						Console.WriteLine("Error: Missing column or \"%\" symbol in data file line " + (i + 1).ToString(CI.InvariantCulture) + ".");
+						return;
+					}
+					percentSignFrom = percentSignIndex + 1;
 				}
 				messages[i] = message;
 			}
@@ -161,14 +179,15 @@ namespace ResultsMailer
 				client.Authenticate(config.Server.Login, config.Server.Password);
 				for(int i = 0; i < messages.Length; ++i)
 				{
+					if(tos[i].Length == 0) continue;
 					string message = messages[i];
-					string to = tos[i];
-					Console.WriteLine("* " + to);
+					string toImpl = tos[i].Aggregate((s1, s2) => s1 + ", " + s2);
+					Console.WriteLine("* " + toImpl.Substring(0, toImpl.Length - 2));
 
 					// Create email
 					var mail = new MimeMessage();
 					mail.From.Add(senderAddress);
-					mail.To.Add(new MailboxAddress((string)null, to));
+					foreach(var to in tos[i])	mail.To.Add(new MailboxAddress((string)null, to));
 					if(replyToAddress != null) mail.ReplyTo.Add(replyToAddress);
 					mail.Subject = config.Template.Subject;
 					mail.Body = new TextPart() { Text = message };

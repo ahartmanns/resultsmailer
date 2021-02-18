@@ -19,11 +19,14 @@ namespace ResultsMailer
 			[JsonPropertyName("header-rows")]
 			public int HeaderRows { get; set; } = 0;
 
-			[JsonPropertyName("to-column")]
-			public int ToColumn { get; set; }
+			[JsonPropertyName("to-columns")]
+			public int[] ToColumns { get; set; }
 
 			[JsonPropertyName("exclude-if-empty-column")]
 			public int ExcludeIfEmptyColumn { get; set; }
+
+			[JsonPropertyName("exclude-if-non-empty-column")]
+			public int ExcludeIfNonEmptyColumn { get; set; }
 
 			public bool Check(Action<string> reportError)
 			{
